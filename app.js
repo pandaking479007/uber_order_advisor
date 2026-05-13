@@ -699,7 +699,10 @@ async function syncTeslaToday() {
     const date = encodeURIComponent($("dailyDate").value || new Date().toISOString().slice(0, 10));
     const response = await fetch(`/.netlify/functions/tesla-daily-sync?user=${user}&date=${date}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || data.error || "Tesla sync failed.");
+    if (!response.ok) {
+      const details = data.details ? ` Details: ${JSON.stringify(data.details)}` : "";
+      throw new Error(`${data.message || data.error || "Tesla sync failed."}${details}`);
+    }
 
     if (data.startOdometer) setValue("startOdometer", Number(data.startOdometer).toFixed(1));
     if (data.endOdometer) setValue("endOdometer", Number(data.endOdometer).toFixed(1));

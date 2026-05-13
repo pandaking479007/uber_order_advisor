@@ -636,6 +636,7 @@ function wireEvents() {
 
   $("checkTeslaBackend").addEventListener("click", checkTeslaBackend);
   $("syncTeslaToday").addEventListener("click", syncTeslaToday);
+  $("registerTeslaDomain").addEventListener("click", registerTeslaDomain);
 }
 
 async function checkTeslaBackend() {
@@ -719,6 +720,33 @@ async function syncTeslaToday() {
     }
   } catch (error) {
     status.textContent = "Tesla sync failed";
+    note.textContent = error.message;
+  }
+}
+
+async function registerTeslaDomain() {
+  const status = $("teslaBackendStatus");
+  const note = $("teslaBackendNote");
+  if (location.protocol === "file:") {
+    status.textContent = "Static local file";
+    note.textContent = "Open the deployed Netlify app to register the Tesla domain.";
+    return;
+  }
+
+  status.textContent = "Registering Tesla domain...";
+  note.textContent = "Calling Tesla partner account registration for this Netlify domain.";
+
+  try {
+    const response = await fetch("/.netlify/functions/tesla-register-domain", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) {
+      const details = data.details ? ` Details: ${JSON.stringify(data.details)}` : "";
+      throw new Error(`${data.message || data.error || "Tesla domain registration failed."}${details}`);
+    }
+    status.textContent = "Tesla domain registered";
+    note.textContent = `Registered ${data.domain}. Public key: ${data.publicKeyUrl}`;
+  } catch (error) {
+    status.textContent = "Tesla domain registration failed";
     note.textContent = error.message;
   }
 }

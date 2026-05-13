@@ -24,9 +24,10 @@
         <div class="status-pill" id="storageStatus">Saved locally</div>
       </header>
 
-      <nav class="tabs four-tabs" aria-label="Primary navigation">
+      <nav class="tabs five-tabs" aria-label="Primary navigation">
         <button class="tab-button active" data-tab="calculator" type="button">Trip</button>
         <button class="tab-button" data-tab="daily" type="button">Daily</button>
+        <button class="tab-button" data-tab="charts" type="button">Charts</button>
         <button class="tab-button" data-tab="settings" type="button">Settings</button>
         <button class="tab-button" data-tab="history" type="button">History</button>
       </nav>
@@ -272,6 +273,45 @@
             <button class="ghost-button" id="checkTeslaBackend" type="button">Check backend</button>
             <button class="ghost-button" id="syncTeslaToday" type="button">Sync Tesla today</button>
             <button class="ghost-button" id="registerTeslaDomain" type="button">Register Tesla domain</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="charts">
+        <div class="history-toolbar">
+          <p>Performance charts</p>
+          <div class="chart-controls" role="group" aria-label="Chart period">
+            <button class="ghost-button small active-period" data-chart-period="week" type="button">Weekly</button>
+            <button class="ghost-button small" data-chart-period="month" type="button">Monthly</button>
+            <button class="ghost-button small" data-chart-period="quarter" type="button">Quarterly</button>
+          </div>
+        </div>
+
+        <section class="decision-area">
+          <div class="decision-header">
+            <div>
+              <p class="eyebrow">Summary</p>
+              <h2 id="chartTitle">Weekly totals</h2>
+            </div>
+          </div>
+          <div class="metrics-grid">
+            <div><span>Gross revenue</span><strong id="chartGrossTotal">--</strong></div>
+            <div><span>Estimated cost</span><strong id="chartCostTotal">--</strong></div>
+            <div><span>Pretax net</span><strong id="chartPretaxTotal">--</strong></div>
+            <div><span>After-tax net</span><strong id="chartAfterTaxTotal">--</strong></div>
+          </div>
+        </section>
+
+        <section class="chart-panel">
+          <h2>Gross vs cost vs net</h2>
+          <div class="chart-legend">
+            <span><b class="legend-gross"></b> Gross</span>
+            <span><b class="legend-cost"></b> Cost</span>
+            <span><b class="legend-pretax"></b> Pretax net</span>
+            <span><b class="legend-aftertax"></b> After-tax net</span>
+          </div>
+          <div class="bar-chart" id="barChart">
+            <p class="empty-state">No daily KPI records yet.</p>
           </div>
         </section>
       </section>

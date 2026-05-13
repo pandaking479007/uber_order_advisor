@@ -39,6 +39,7 @@ const defaultSettings = {
 
 let lastDecision = null;
 let lastDaily = null;
+let chartPeriod = "week";
 
 const $ = (id) => document.getElementById(id);
 
@@ -521,6 +522,113 @@ function renderHistory() {
   `).join("");
 }
 
+function renderCharts() {
+  const records = loadDaily()
+    .filter((item) => item.date)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  const grouped = groupDailyRecords(records, chartPeriod);
+  const groups = Object.values(grouped).slice(-8);
+  const totals = groups.reduce((sum, group) => ({
+    gross: sum.gross + group.gross,
+    cost: sum.cost + group.cost,
+    pretax: sum.pretax + group.pretax,
+    afterTax: sum.afterTax + group.afterTax,
+  }), { gross: 0, cost: 0, pretax: 0, afterTax: 0 });
+
+  $("chartTitle").textContent = `${capitalize(chartPeriod)}ly totals`;
+  $("chartGrossTotal").textContent = money(totals.gross);
+  $("chartCostTotal").textContent = money(totals.cost);
+  $("chartPretaxTotal").textContent = money(totals.pretax);
+  $("chartAfterTaxTotal").textContent = money(totals.afterTax);
+
+  const chart = $("barChart");
+  if (!groups.length) {
+    chart.innerHTML = '<p class="empty-state">No daily KPI records yet.</p>';
+    return;
+  }
+
+  const maxValue = Math.max(...groups.flatMap((group) => [group.gross, group.cost, group.pretax, group.afterTax]), 1);
+  chart.innerHTML = groups.map((group) => `
+    <article class="chart-row">
+      <header>
+        <strong>${group.label}</strong>
+        <small>${oneDecimal(group.miles)} mi / ${oneDecimal(group.hours)} hr</small>
+      </header>
+      <div class="bar-stack">
+        ${barLine("Gross", group.gross, maxValue, "bar-gross")}
+        ${barLine("Cost", group.cost, maxValue, "bar-cost")}
+        ${barLine("Pretax", group.pretax, maxValue, "bar-pretax")}
+        ${barLine("After tax", group.afterTax, maxValue, "bar-aftertax")}
+      </div>
+    </article>
+  `).join("");
+}
+
+function groupDailyRecords(records, period) {
+  return records.reduce((groups, item) => {
+    const key = getPeriodKey(item.date, period);
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        label: getPeriodLabel(item.date, period),
+        gross: 0,
+        cost: 0,
+        pretax: 0,
+        afterTax: 0,
+        miles: 0,
+        hours: 0,
+      };
+    }
+    groups[key].gross += Number(item.gross || 0);
+    groups[key].cost += Number(item.estimatedCost || 0);
+    groups[key].pretax += Number(item.pretaxProfit || 0);
+    groups[key].afterTax += Number(item.afterTaxProfit || 0);
+    groups[key].miles += Number(item.totalMiles || 0);
+    groups[key].hours += Number(item.hours || 0);
+    return groups;
+  }, {});
+}
+
+function getPeriodKey(dateValue, period) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  const year = date.getFullYear();
+  if (period === "month") return `${year}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  if (period === "quarter") return `${year}-Q${Math.floor(date.getMonth() / 3) + 1}`;
+  return `${year}-W${String(getWeekNumber(date)).padStart(2, "0")}`;
+}
+
+function getPeriodLabel(dateValue, period) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (period === "month") {
+    return date.toLocaleString("en-US", { month: "short", year: "numeric" });
+  }
+  if (period === "quarter") {
+    return `Q${Math.floor(date.getMonth() / 3) + 1} ${date.getFullYear()}`;
+  }
+  return `Week ${getWeekNumber(date)} ${date.getFullYear()}`;
+}
+
+function getWeekNumber(date) {
+  const firstDay = new Date(date.getFullYear(), 0, 1);
+  const dayOffset = Math.floor((date - firstDay) / 86400000);
+  return Math.ceil((dayOffset + firstDay.getDay() + 1) / 7);
+}
+
+function barLine(label, value, maxValue, className) {
+  const width = Math.max(0, Math.min(100, (Number(value || 0) / maxValue) * 100));
+  return `
+    <div class="bar-line">
+      <span>${label}</span>
+      <div class="bar-track"><div class="bar-fill ${className}" style="width:${width}%"></div></div>
+      <strong>${money(value)}</strong>
+    </div>
+  `;
+}
+
+function capitalize(value) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function switchTab(tabId) {
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tabId);
@@ -528,6 +636,7 @@ function switchTab(tabId) {
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     panel.classList.toggle("active", panel.id === tabId);
   });
+  if (tabId === "charts") renderCharts();
 }
 
 function resetDecision() {
@@ -585,6 +694,7 @@ function wireEvents() {
     const records = loadDaily().filter((record) => record.date !== lastDaily.date || record.platform !== lastDaily.platform);
     saveDaily([lastDaily, ...records]);
     renderHistory();
+    renderCharts();
     flashStatus("Daily KPI saved");
   });
 
@@ -637,6 +747,16 @@ function wireEvents() {
   $("checkTeslaBackend").addEventListener("click", checkTeslaBackend);
   $("syncTeslaToday").addEventListener("click", syncTeslaToday);
   $("registerTeslaDomain").addEventListener("click", registerTeslaDomain);
+
+  document.querySelectorAll("[data-chart-period]").forEach((button) => {
+    button.addEventListener("click", () => {
+      chartPeriod = button.dataset.chartPeriod;
+      document.querySelectorAll("[data-chart-period]").forEach((item) => {
+        item.classList.toggle("active-period", item === button);
+      });
+      renderCharts();
+    });
+  });
 }
 
 async function checkTeslaBackend() {
@@ -760,6 +880,7 @@ function registerServiceWorker() {
 $("dailyDate").value = new Date().toISOString().slice(0, 10);
 renderSettings();
 renderHistory();
+renderCharts();
 wireEvents();
 checkTeslaBackend();
 registerServiceWorker();

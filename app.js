@@ -550,7 +550,8 @@ function renderCharts() {
     return;
   }
 
-  const maxValue = Math.max(...axisGroups.map((group) => Math.max(0, group[chartMetric])), 1);
+  const rawMaxValue = Math.max(...axisGroups.map((group) => Math.max(0, group[chartMetric])), 1);
+  const maxValue = getNiceAxisMax(rawMaxValue);
   chart.innerHTML = `
     <div class="y-axis">
       <span>${money(maxValue)}</span>
@@ -594,6 +595,7 @@ function buildWeekGroups(records) {
     return {
       key: date.toISOString().slice(0, 10),
       label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+      fullLabel: date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
       gross: 0,
       cost: 0,
       pretax: 0,
@@ -621,9 +623,10 @@ function groupDailyRecords(records, period) {
   return records.reduce((groups, item) => {
     const key = getPeriodKey(item.date, period);
     if (!groups[key]) {
-    groups[key] = {
+      groups[key] = {
         key,
         label: getPeriodLabel(item.date, period),
+        fullLabel: getPeriodLabel(item.date, period),
         gross: 0,
         cost: 0,
         pretax: 0,
@@ -685,10 +688,13 @@ function barLine(label, value, maxValue, className) {
 function axisColumn(group, maxValue) {
   const value = Math.max(0, Number(group[chartMetric] || 0));
   const height = Math.max(0, Math.min(100, (value / maxValue) * 100));
+  const tooltip = `${group.fullLabel || group.label}<br>${metricLabels[chartMetric]}: ${money(value)}<br>${oneDecimal(group.miles)} mi / ${oneDecimal(group.hours)} hr`;
   return `
     <div class="axis-column">
       <div class="axis-bar-wrap">
-        <div class="axis-bar ${metricClasses[chartMetric].bar}" title="${group.label}: ${money(value)}" style="height:${height}%"></div>
+        <div class="axis-bar ${metricClasses[chartMetric].bar}" tabindex="0" aria-label="${group.label} ${metricLabels[chartMetric]} ${money(value)}" style="height:${height}%">
+          <span class="axis-tooltip">${tooltip}</span>
+        </div>
       </div>
       <div class="axis-label">
         <span>${group.label}</span>
@@ -696,6 +702,14 @@ function axisColumn(group, maxValue) {
       </div>
     </div>
   `;
+}
+
+function getNiceAxisMax(value) {
+  if (value <= 0) return 100;
+  if (value <= 500) return Math.ceil(value / 100) * 100 || 100;
+  if (value <= 1000) return Math.ceil(value / 250) * 250;
+  if (value <= 5000) return Math.ceil(value / 500) * 500;
+  return Math.ceil(value / 1000) * 1000;
 }
 
 function capitalize(value) {

@@ -607,7 +607,7 @@ a.primary-link[aria-disabled="true"] {
   display: grid;
   grid-template-columns: 52px 1fr;
   gap: 10px;
-  min-height: 290px;
+  min-height: 360px;
 }
 
 .y-axis {
@@ -615,7 +615,8 @@ a.primary-link[aria-disabled="true"] {
   flex-direction: column;
   justify-content: space-between;
   align-items: flex-end;
-  padding: 4px 0 28px;
+  height: 300px;
+  padding: 0 0 0;
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 800;
@@ -627,7 +628,7 @@ a.primary-link[aria-disabled="true"] {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   align-items: end;
   gap: 8px;
-  min-height: 260px;
+  min-height: 330px;
   padding-top: 8px;
   border-left: 1px solid rgba(22, 32, 28, 0.12);
   border-bottom: 1px solid rgba(22, 32, 28, 0.12);
@@ -640,26 +641,62 @@ a.primary-link[aria-disabled="true"] {
 }
 
 .axis-column {
-  display: grid;
-  grid-template-rows: 1fr auto;
+  display: flex;
+  flex-direction: column;
   align-items: end;
+  justify-content: flex-end;
   gap: 8px;
   min-width: 0;
-  height: 100%;
+  min-height: 330px;
 }
 
 .axis-bar-wrap {
+  position: relative;
   display: flex;
   align-items: end;
   justify-content: center;
-  min-height: 220px;
+  width: 100%;
+  height: 300px;
 }
 
 .axis-bar {
+  position: relative;
   width: min(34px, 70%);
   min-height: 2px;
   border-radius: 6px 6px 0 0;
   background: var(--accent);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.axis-bar:hover,
+.axis-bar:focus {
+  opacity: 0.86;
+  transform: translateY(-2px);
+}
+
+.axis-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  display: none;
+  width: max-content;
+  max-width: 180px;
+  transform: translateX(-50%);
+  padding: 7px 9px;
+  border: 1px solid rgba(22, 32, 28, 0.14);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface-strong);
+  box-shadow: 0 10px 24px rgba(22, 32, 28, 0.16);
+  font-size: 0.74rem;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.axis-bar:hover .axis-tooltip,
+.axis-bar:focus .axis-tooltip {
+  display: block;
 }
 
 .axis-label {

@@ -29,7 +29,7 @@ exports.handler = async (event) => {
       client_id: clientId,
       client_secret: clientSecret,
       code,
-      audience: "https://fleet-api.prd.na.vn.cloud.tesla.com",
+      audience: "https://fleet-api.prd.na.vn.cloud.tesla.com/",
       redirect_uri: redirectUri,
     }),
   });

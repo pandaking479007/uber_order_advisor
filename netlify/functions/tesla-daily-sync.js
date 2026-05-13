@@ -87,7 +87,7 @@ async function refreshTeslaToken(userId, refreshToken) {
       client_id: clientId,
       client_secret: clientSecret,
       refresh_token: refreshToken,
-      audience: FLEET_API_BASE,
+      audience: `${FLEET_API_BASE}/`,
     }),
   });
 
@@ -121,7 +121,7 @@ async function teslaGet(path, accessToken) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw Object.assign(new Error(`Tesla API request failed: ${path}`), {
+    throw Object.assign(new Error(`Tesla API request failed: ${path}: ${JSON.stringify(body)}`), {
       statusCode: response.status,
       code: "tesla_api_failed",
       details: body,

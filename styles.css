@@ -701,11 +701,17 @@ a.primary-link[aria-disabled="true"] {
 
 .axis-label {
   display: grid;
-  gap: 3px;
-  min-height: 40px;
+  gap: 2px;
+  min-height: 54px;
   color: var(--muted);
   text-align: center;
   font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.axis-label small {
+  color: var(--muted);
+  font-size: 0.68rem;
   font-weight: 800;
 }
 

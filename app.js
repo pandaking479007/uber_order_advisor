@@ -555,9 +555,8 @@ function renderCharts() {
   chart.innerHTML = `
     <div class="y-axis">
       <span>${money(maxValue)}</span>
-      <span>${money(maxValue * 0.75)}</span>
-      <span>${money(maxValue * 0.5)}</span>
-      <span>${money(maxValue * 0.25)}</span>
+      <span>${money(maxValue * (2 / 3))}</span>
+      <span>${money(maxValue * (1 / 3))}</span>
       <span>$0</span>
     </div>
     <div class="x-chart">
@@ -574,10 +573,10 @@ const metricLabels = {
 };
 
 const metricClasses = {
-  gross: { legend: "legend-gross", bar: "bar-gross" },
-  cost: { legend: "legend-cost", bar: "bar-cost" },
-  pretax: { legend: "legend-pretax", bar: "bar-pretax" },
-  afterTax: { legend: "legend-aftertax", bar: "bar-aftertax" },
+  gross: { legend: "legend-gross", bar: "bar-gross", color: "#1f7a5a" },
+  cost: { legend: "legend-cost", bar: "bar-cost", color: "#b33a3a" },
+  pretax: { legend: "legend-pretax", bar: "bar-pretax", color: "#2c6fbb" },
+  afterTax: { legend: "legend-aftertax", bar: "bar-aftertax", color: "#b86b18" },
 };
 
 function buildAxisGroups(records, period) {
@@ -595,6 +594,7 @@ function buildWeekGroups(records) {
     return {
       key: date.toISOString().slice(0, 10),
       label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+      subLabel: date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }),
       fullLabel: date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
       gross: 0,
       cost: 0,
@@ -626,6 +626,7 @@ function groupDailyRecords(records, period) {
       groups[key] = {
         key,
         label: getPeriodLabel(item.date, period),
+        subLabel: getPeriodSubLabel(item.date, period),
         fullLabel: getPeriodLabel(item.date, period),
         gross: 0,
         cost: 0,
@@ -668,6 +669,13 @@ function getPeriodLabel(dateValue, period) {
   return `Week ${getWeekNumber(date)} ${date.getFullYear()}`;
 }
 
+function getPeriodSubLabel(dateValue, period) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (period === "month") return `Week ${getWeekNumber(date)}`;
+  if (period === "quarter") return date.toLocaleString("en-US", { month: "short" });
+  return date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+}
+
 function getWeekNumber(date) {
   const firstDay = new Date(date.getFullYear(), 0, 1);
   const dayOffset = Math.floor((date - firstDay) / 86400000);
@@ -689,15 +697,17 @@ function axisColumn(group, maxValue) {
   const value = Math.max(0, Number(group[chartMetric] || 0));
   const height = Math.max(0, Math.min(100, (value / maxValue) * 100));
   const tooltip = `${group.fullLabel || group.label}<br>${metricLabels[chartMetric]}: ${money(value)}<br>${oneDecimal(group.miles)} mi / ${oneDecimal(group.hours)} hr`;
+  const metric = metricClasses[chartMetric];
   return `
     <div class="axis-column">
       <div class="axis-bar-wrap">
-        <div class="axis-bar ${metricClasses[chartMetric].bar}" tabindex="0" aria-label="${group.label} ${metricLabels[chartMetric]} ${money(value)}" style="height:${height}%">
+        <div class="axis-bar ${metric.bar}" tabindex="0" aria-label="${group.label} ${metricLabels[chartMetric]} ${money(value)}" style="height:${height}%; background:${metric.color}">
           <span class="axis-tooltip">${tooltip}</span>
         </div>
       </div>
       <div class="axis-label">
         <span>${group.label}</span>
+        <small>${group.subLabel || ""}</small>
         <strong>${money(value)}</strong>
       </div>
     </div>

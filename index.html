@@ -1,396 +1,734 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#16201c">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Ride Advisor">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Ride Decision Advisor</title>
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="icon.svg">
-    <link rel="stylesheet" href="styles.css">
-  </head>
-  <body>
-    <main class="app-shell">
-      <header class="topbar">
+const storageKeys = {
+  settings: "rideDecision.settings.v2",
+  history: "rideDecision.history.v2",
+  daily: "rideDecision.daily.v1",
+};
+
+const vehicleCosts = {
+  economy: 0.30,
+  comfort: 0.40,
+  suv: 0.55,
+  ev: 0.35,
+};
+
+const defaultSettings = {
+  minHourly: 30,
+  minPerMile: 1.35,
+  maxPickupMiles: 6,
+  defaultCost: 0.35,
+  electricCost: 0.05,
+  homeElectricRate: 0.14,
+  superchargerRate: 0.42,
+  homeChargingShare: 90,
+  kwhPerMile: 0.33,
+  tireCost: 0.05,
+  tireSetCost: 1200,
+  tireLifeMiles: 30000,
+  maintenanceCost: 0.03,
+  maintenanceAmount: 600,
+  maintenanceIntervalMiles: 20000,
+  insuranceCost: 0.03,
+  insuranceMonthlyPremium: 75,
+  insuranceAnnualMiles: 30000,
+  depreciationCost: 0.19,
+  taxReserveRate: 20,
+  penalizeSuburb: true,
+  penalizeAirport: true,
+  penalizeRemote: true,
+};
+
+let lastDecision = null;
+let lastDaily = null;
+
+const $ = (id) => document.getElementById(id);
+
+function readJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getLocalUserId() {
+  const key = "rideDecision.userId.v1";
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const id = crypto.randomUUID ? crypto.randomUUID() : `local-${Date.now()}`;
+  localStorage.setItem(key, id);
+  return id;
+}
+
+function loadSettings() {
+  return { ...defaultSettings, ...readJson(storageKeys.settings, {}) };
+}
+
+function saveSettings(settings) {
+  writeJson(storageKeys.settings, settings);
+}
+
+function loadHistory() {
+  return readJson(storageKeys.history, []);
+}
+
+function saveHistory(history) {
+  writeJson(storageKeys.history, history.slice(0, 30));
+}
+
+function loadDaily() {
+  return readJson(storageKeys.daily, []);
+}
+
+function saveDaily(records) {
+  writeJson(storageKeys.daily, records.slice(0, 60));
+}
+
+function money(value) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function oneDecimal(value) {
+  return Number(value || 0).toFixed(1);
+}
+
+function pct(value) {
+  if (!Number.isFinite(value)) return "--";
+  return `${Math.round(value * 100)}%`;
+}
+
+function getNumber(id) {
+  return Number($(id).value || 0);
+}
+
+function setValue(id, value) {
+  $(id).value = value;
+}
+
+function flashStatus(text) {
+  $("storageStatus").textContent = text;
+  window.setTimeout(() => {
+    $("storageStatus").textContent = "Saved locally";
+  }, 1400);
+}
+
+function currentCostPerMile(settings) {
+  const vehicleType = $("vehicleType").value;
+  if (vehicleType === "custom") return getNumber("customCost") || settings.defaultCost;
+  return vehicleCosts[vehicleType] || settings.defaultCost;
+}
+
+function costBreakdownTotal() {
+  return ["electricCost", "tireCost", "maintenanceCost", "insuranceCost", "depreciationCost"]
+    .reduce((sum, id) => sum + getNumber(id), 0);
+}
+
+function calculateCostParts() {
+  const homeShare = Math.min(100, Math.max(0, getNumber("homeChargingShare"))) / 100;
+  const blendedElectricRate = (homeShare * getNumber("homeElectricRate")) + ((1 - homeShare) * getNumber("superchargerRate"));
+  const electricCost = blendedElectricRate * getNumber("kwhPerMile");
+  const tireCost = getNumber("tireLifeMiles") > 0 ? getNumber("tireSetCost") / getNumber("tireLifeMiles") : 0;
+  const maintenanceCost = getNumber("maintenanceIntervalMiles") > 0 ? getNumber("maintenanceAmount") / getNumber("maintenanceIntervalMiles") : 0;
+  const insuranceCost = getNumber("insuranceAnnualMiles") > 0 ? (getNumber("insuranceMonthlyPremium") * 12) / getNumber("insuranceAnnualMiles") : 0;
+
+  $("electricCost").value = electricCost.toFixed(2);
+  $("tireCost").value = tireCost.toFixed(2);
+  $("maintenanceCost").value = maintenanceCost.toFixed(2);
+  $("insuranceCost").value = insuranceCost.toFixed(2);
+}
+
+function updateCostTotal() {
+  calculateCostParts();
+  const total = costBreakdownTotal();
+  $("defaultCost").value = total.toFixed(2);
+  $("costTotalLabel").textContent = `${money(total)}/mi`;
+  updateCurrentCostNote();
+}
+
+function updateCurrentCostNote() {
+  const settings = loadSettings();
+  const cost = $("vehicleType") ? currentCostPerMile(settings) : settings.defaultCost;
+  const note = $("currentCostNote");
+  if (note) {
+    note.textContent = `Current full cost per mile: ${money(cost)}/mi. For quick one-off adjustments, choose Custom under vehicle cost profile. Long-term cost assumptions live in Settings.`;
+  }
+}
+
+function calculateDecision() {
+  const settings = loadSettings();
+  const fare = getNumber("fare");
+  const tripMiles = getNumber("tripMiles");
+  const pickupMiles = getNumber("pickupMiles");
+  const totalMinutes = getNumber("totalMinutes");
+  const destinationType = $("destinationType").value;
+  const totalMiles = tripMiles + pickupMiles;
+  const costPerMile = currentCostPerMile(settings);
+  const hours = totalMinutes / 60;
+  const hourlyGross = hours > 0 ? fare / hours : 0;
+  const perMileGross = totalMiles > 0 ? fare / totalMiles : 0;
+  const estimatedCost = totalMiles * costPerMile;
+  const netIncome = fare - estimatedCost;
+  const taxReserve = Math.max(0, netIncome) * (settings.taxReserveRate / 100);
+  const afterTaxNet = netIncome - taxReserve;
+  const netHourly = hours > 0 ? netIncome / hours : 0;
+  const reasons = [];
+  let score = 100;
+
+  if (hourlyGross < 22) {
+    score -= 40;
+    reasons.push(`Gross per hour is ${money(hourlyGross)}, below $22/hr. This is not worth repeating long term.`);
+  } else if (hourlyGross < 24) {
+    score -= 30;
+    reasons.push(`Gross per hour is ${money(hourlyGross)}, below the $24/hr minimum.`);
+  } else if (hourlyGross < settings.minHourly) {
+    score -= 10;
+    reasons.push(`Gross per hour is ${money(hourlyGross)}, below your ${money(settings.minHourly)} target.`);
+  } else {
+    reasons.push(`Gross per hour is ${money(hourlyGross)}, meeting your target.`);
+  }
+
+  if (perMileGross < 1.1) {
+    score -= 40;
+    reasons.push(`Gross per total mile is ${money(perMileGross)}, below $1.10 and hard on profit.`);
+  } else if (perMileGross < 1.2) {
+    score -= 30;
+    reasons.push(`Gross per total mile is ${money(perMileGross)}, below the $1.20 minimum.`);
+  } else if (perMileGross < settings.minPerMile) {
+    score -= 10;
+    reasons.push(`Gross per total mile is ${money(perMileGross)}, below your ${money(settings.minPerMile)} target.`);
+  } else {
+    reasons.push(`Gross per total mile is ${money(perMileGross)}, meeting your target.`);
+  }
+
+  if (pickupMiles >= 10) {
+    score -= 40;
+    reasons.push(`Pickup distance is ${oneDecimal(pickupMiles)} mi, too far unless it is high-paying or on your route.`);
+  } else if (pickupMiles >= 8) {
+    score -= 30;
+    reasons.push(`Pickup distance is ${oneDecimal(pickupMiles)} mi, high enough that most offers should be declined.`);
+  } else if (pickupMiles > settings.maxPickupMiles) {
+    score -= 20;
+    reasons.push(`Pickup distance is ${oneDecimal(pickupMiles)} mi, above your ${oneDecimal(settings.maxPickupMiles)} mi limit.`);
+  } else if (pickupMiles > 3) {
+    score -= 8;
+    reasons.push(`Pickup distance is ${oneDecimal(pickupMiles)} mi. Acceptable, but not ideal.`);
+  } else {
+    reasons.push(`Pickup distance is ${oneDecimal(pickupMiles)} mi, which is strong.`);
+  }
+
+  if (destinationType === "suburb" && settings.penalizeSuburb) {
+    score -= 10;
+    reasons.push("Suburban destinations can create return-trip dead miles.");
+  }
+  if (destinationType === "remote" && settings.penalizeRemote) {
+    score -= 25;
+    reasons.push("Remote low-demand areas can pull you away from the Lehi / Draper / Provo / SLC corridor.");
+  }
+  if (destinationType === "airport" && settings.penalizeAirport) {
+    score -= 5;
+    reasons.push("Airport trips can involve waiting or queue risk.");
+  }
+  if (destinationType === "corridor") {
+    reasons.push("Destination stays inside the core corridor, so follow-up trip opportunities are better.");
+  }
+
+  if (netIncome < 5) {
+    score -= 20;
+    reasons.push(`After vehicle cost, estimated net income is only ${money(netIncome)}.`);
+  } else {
+    reasons.push(`After vehicle cost, estimated net income is ${money(netIncome)}, or about ${money(netHourly)}/hr net before tax.`);
+  }
+
+  if (netHourly < settings.minHourly) {
+    score -= 25;
+    reasons.push(`Net hourly income is ${money(netHourly)}, below your ${money(settings.minHourly)} target.`);
+  }
+
+  if (taxReserve > 0) {
+    reasons.push(`Tax reserve at ${settings.taxReserveRate}% of pretax net income is ${money(taxReserve)}. Estimated after-tax net is ${money(afterTaxNet)}.`);
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const status = score >= 80 ? "accept" : score >= 60 ? "maybe" : "decline";
+  const label = status === "accept" ? "Accept" : status === "maybe" ? "Maybe" : "Decline";
+
+  return {
+    createdAt: new Date().toISOString(),
+    fare,
+    tripMiles,
+    pickupMiles,
+    totalMinutes,
+    destinationType,
+    vehicleType: $("vehicleType").value,
+    costPerMile,
+    totalMiles,
+    hourlyGross,
+    perMileGross,
+    estimatedCost,
+    netIncome,
+    taxReserve,
+    afterTaxNet,
+    netHourly,
+    score,
+    status,
+    label,
+    reasons,
+  };
+}
+
+function calculateDaily() {
+  const settings = loadSettings();
+  const gross = getNumber("dailyGross");
+  const hours = getNumber("dailyHours");
+  const startOdometer = getNumber("startOdometer");
+  const endOdometer = getNumber("endOdometer");
+  const odometerMiles = endOdometer > startOdometer ? endOdometer - startOdometer : 0;
+  const totalMiles = odometerMiles || getNumber("dailyMiles");
+  const bookedMiles = getNumber("bookedMiles");
+  const tipsBonus = getNumber("tipsBonus");
+  const homeChargeKwh = getNumber("homeChargeKwh");
+  const superchargeKwh = getNumber("superchargeKwh");
+  const chargeKwh = homeChargeKwh + superchargeKwh;
+  const grossPerHour = hours > 0 ? gross / hours : 0;
+  const grossPerMile = totalMiles > 0 ? gross / totalMiles : 0;
+  const deadMiles = bookedMiles > 0 ? Math.max(0, totalMiles - bookedMiles) : null;
+  const deadRate = deadMiles === null || totalMiles <= 0 ? null : deadMiles / totalMiles;
+  const estimatedCost = totalMiles * settings.defaultCost;
+  const pretaxProfit = gross - estimatedCost;
+  const taxReserve = Math.max(0, pretaxProfit) * (settings.taxReserveRate / 100);
+  const afterTaxProfit = pretaxProfit - taxReserve;
+  const pretaxProfitHour = hours > 0 ? pretaxProfit / hours : 0;
+  const afterTaxProfitHour = hours > 0 ? afterTaxProfit / hours : 0;
+  const lowDemandArea = $("lowDemandArea").checked;
+  const reasons = [];
+  let score = 100;
+
+  if (grossPerHour < 22) {
+    score -= 35;
+    reasons.push(`Gross / hour is ${money(grossPerHour)}, below $22/hr. Reduce this kind of driving window.`);
+  } else if (grossPerHour < 24) {
+    score -= 25;
+    reasons.push(`Gross / hour is ${money(grossPerHour)}, below the $24/hr minimum.`);
+  } else if (grossPerHour < settings.minHourly) {
+    score -= 10;
+    reasons.push(`Gross / hour is ${money(grossPerHour)}, below your ${money(settings.minHourly)} target.`);
+  } else {
+    reasons.push(`Gross / hour is ${money(grossPerHour)}, meeting your target.`);
+  }
+
+  if (grossPerMile < 1.15) {
+    score -= 35;
+    reasons.push(`Gross / total mile is ${money(grossPerMile)}, below $1.15 and not good for long-term Model Y use.`);
+  } else if (grossPerMile < 1.2) {
+    score -= 25;
+    reasons.push(`Gross / total mile is ${money(grossPerMile)}, below the $1.20 minimum.`);
+  } else if (grossPerMile < settings.minPerMile) {
+    score -= 10;
+    reasons.push(`Gross / total mile is ${money(grossPerMile)}, below your ${money(settings.minPerMile)} target.`);
+  } else {
+    reasons.push(`Gross / total mile is ${money(grossPerMile)}, meeting your target.`);
+  }
+
+  if (deadRate !== null) {
+    if (deadRate >= 0.4) {
+      score -= 30;
+      reasons.push(`Dead-mile rate is ${pct(deadRate)}, which seriously eats profit.`);
+    } else if (deadRate >= 0.35) {
+      score -= 20;
+      reasons.push(`Dead-mile rate is ${pct(deadRate)}, above the 35% limit.`);
+    } else if (deadRate >= 0.25) {
+      score -= 8;
+      reasons.push(`Dead-mile rate is ${pct(deadRate)}. Acceptable, but still improvable.`);
+    } else {
+      reasons.push(`Dead-mile rate is ${pct(deadRate)}, which is healthy.`);
+    }
+  } else {
+    reasons.push("Booked miles were not entered, so dead-mile rate is not calculated yet.");
+  }
+
+  if (pretaxProfitHour < 18) {
+    score -= 25;
+    reasons.push(`Pretax real profit after full vehicle cost is about ${money(pretaxProfitHour)}/hr, which is low.`);
+  } else if (pretaxProfitHour < 25) {
+    score -= 8;
+    reasons.push(`Pretax real profit after full vehicle cost is about ${money(pretaxProfitHour)}/hr. Usable, but not excellent.`);
+  } else {
+    reasons.push(`Pretax real profit after full vehicle cost is about ${money(pretaxProfitHour)}/hr. Strong result.`);
+  }
+
+  if (lowDemandArea) {
+    score -= 10;
+    reasons.push("You entered a low-demand area today. Check whether it created return-trip dead miles.");
+  }
+
+  if (chargeKwh > 0) {
+    const kwhPerMile = totalMiles > 0 ? chargeKwh / totalMiles : 0;
+    reasons.push(`Logged ${oneDecimal(chargeKwh)} kWh total: ${oneDecimal(homeChargeKwh)} home and ${oneDecimal(superchargeKwh)} Supercharger, about ${kwhPerMile.toFixed(2)} kWh/mi.`);
+  }
+
+  if (odometerMiles > 0) {
+    reasons.push(`Daily miles came from odometer: ${oneDecimal(startOdometer)} to ${oneDecimal(endOdometer)} = ${oneDecimal(odometerMiles)} mi.`);
+  }
+
+  if (tipsBonus > 0) {
+    reasons.push(`Tips / bonus logged: ${money(tipsBonus)}.`);
+  }
+
+  if (taxReserve > 0) {
+    reasons.push(`Tax reserve at ${settings.taxReserveRate}% of pretax profit is ${money(taxReserve)}. Estimated after-tax profit is ${money(afterTaxProfitHour)}/hr.`);
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const status = score >= 80 ? "accept" : score >= 60 ? "maybe" : "decline";
+  const label = status === "accept" ? "Healthy" : status === "maybe" ? "Mixed" : "Weak";
+
+  return {
+    createdAt: new Date().toISOString(),
+    date: $("dailyDate").value,
+    platform: $("dailyPlatform").value,
+    gross,
+    hours,
+    startOdometer,
+    endOdometer,
+    totalMiles,
+    bookedMiles,
+    tipsBonus,
+    homeChargeKwh,
+    superchargeKwh,
+    chargeKwh,
+    deadMiles,
+    deadRate,
+    grossPerHour,
+    grossPerMile,
+    estimatedCost,
+    pretaxProfit,
+    taxReserve,
+    afterTaxProfit,
+    pretaxProfitHour,
+    afterTaxProfitHour,
+    lowDemandArea,
+    score,
+    status,
+    label,
+    reasons,
+  };
+}
+
+function renderDecision(decision) {
+  const area = $("decisionArea");
+  area.classList.remove("accept", "maybe", "decline");
+  area.classList.add(decision.status);
+  $("decisionLabel").textContent = decision.label;
+  $("scoreRing").textContent = decision.score;
+  $("hourlyGross").textContent = money(decision.hourlyGross);
+  $("perMileGross").textContent = `${money(decision.perMileGross)}/mi`;
+  $("estimatedCost").textContent = money(decision.estimatedCost);
+  $("netIncome").textContent = money(decision.netIncome);
+  $("taxReserve").textContent = money(decision.taxReserve);
+  $("afterTaxNet").textContent = money(decision.afterTaxNet);
+  $("reasonList").innerHTML = decision.reasons.map((reason) => `<li>${reason}</li>`).join("");
+  $("saveRecord").disabled = false;
+}
+
+function renderDaily(daily) {
+  const area = $("dailySummary");
+  area.classList.remove("accept", "maybe", "decline");
+  area.classList.add(daily.status);
+  $("dailyStatus").textContent = daily.label;
+  $("dailyScore").textContent = daily.score;
+  $("dailyGrossHour").textContent = `${money(daily.grossPerHour)}/hr`;
+  $("dailyGrossMile").textContent = `${money(daily.grossPerMile)}/mi`;
+  $("deadMileRate").textContent = daily.deadRate === null ? "--" : pct(daily.deadRate);
+  $("dailyProfit").textContent = `${money(daily.pretaxProfitHour)}/hr`;
+  $("dailyTaxReserve").textContent = money(daily.taxReserve);
+  $("dailyAfterTaxProfit").textContent = `${money(daily.afterTaxProfitHour)}/hr`;
+  $("dailyChargeEnergy").textContent = daily.chargeKwh > 0 ? `${oneDecimal(daily.chargeKwh)} kWh` : "--";
+  $("dailyKwhMile").textContent = daily.chargeKwh > 0 && daily.totalMiles > 0 ? `${(daily.chargeKwh / daily.totalMiles).toFixed(2)} kWh/mi` : "--";
+  $("dailyReasons").innerHTML = daily.reasons.map((reason) => `<li>${reason}</li>`).join("");
+}
+
+function renderSettings() {
+  const settings = loadSettings();
+  $("minHourly").value = settings.minHourly;
+  $("minPerMile").value = settings.minPerMile;
+  $("maxPickupMiles").value = settings.maxPickupMiles;
+  $("defaultCost").value = settings.defaultCost;
+  $("homeElectricRate").value = settings.homeElectricRate;
+  $("superchargerRate").value = settings.superchargerRate;
+  $("homeChargingShare").value = settings.homeChargingShare;
+  $("kwhPerMile").value = settings.kwhPerMile;
+  $("electricCost").value = settings.electricCost;
+  $("tireSetCost").value = settings.tireSetCost;
+  $("tireLifeMiles").value = settings.tireLifeMiles;
+  $("tireCost").value = settings.tireCost;
+  $("maintenanceAmount").value = settings.maintenanceAmount;
+  $("maintenanceIntervalMiles").value = settings.maintenanceIntervalMiles;
+  $("maintenanceCost").value = settings.maintenanceCost;
+  $("insuranceMonthlyPremium").value = settings.insuranceMonthlyPremium;
+  $("insuranceAnnualMiles").value = settings.insuranceAnnualMiles;
+  $("insuranceCost").value = settings.insuranceCost;
+  $("depreciationCost").value = settings.depreciationCost;
+  $("taxReserveRate").value = settings.taxReserveRate;
+  $("penalizeSuburb").checked = Boolean(settings.penalizeSuburb);
+  $("penalizeAirport").checked = Boolean(settings.penalizeAirport);
+  $("penalizeRemote").checked = Boolean(settings.penalizeRemote);
+  updateCostTotal();
+}
+
+function renderHistory() {
+  const history = loadHistory();
+  const historyList = $("historyList");
+  if (!history.length) {
+    historyList.innerHTML = '<p class="empty-state">No saved offers yet.</p>';
+  } else {
+    historyList.innerHTML = history.map((item) => {
+      const date = new Date(item.createdAt);
+      return `
+        <article class="history-item">
+          <header>
+            <div>
+              <strong>${money(item.fare)} / ${oneDecimal(item.totalMiles)} mi / ${item.totalMinutes} min</strong>
+              <time>${date.toLocaleString("en-US", { hour12: false })}</time>
+            </div>
+            <span class="badge ${item.status}">${item.label} ${item.score}</span>
+          </header>
+          <p>Gross/hr ${money(item.hourlyGross)}, gross/mi ${money(item.perMileGross)}, net income ${money(item.netIncome)}, after-tax net ${money(item.afterTaxNet)}</p>
+        </article>
+      `;
+    }).join("");
+  }
+
+  const dailyRecords = loadDaily();
+  const dailyList = $("dailyList");
+  if (!dailyRecords.length) {
+    dailyList.innerHTML = '<p class="empty-state">No daily records yet.</p>';
+    return;
+  }
+  dailyList.innerHTML = dailyRecords.map((item) => `
+    <article class="history-item">
+      <header>
         <div>
-          <p class="eyebrow">Driver Decision</p>
-          <h1>Ride Decision Advisor</h1>
+          <strong>${item.date} / ${item.platform} / ${money(item.gross)}</strong>
+          <time>${oneDecimal(item.hours)} hr / ${oneDecimal(item.totalMiles)} mi</time>
         </div>
-        <div class="status-pill" id="storageStatus">Saved locally</div>
+        <span class="badge ${item.status}">${item.label} ${item.score}</span>
       </header>
+      <p>Gross/hr ${money(item.grossPerHour)}, gross/mi ${money(item.grossPerMile)}, pretax profit ${money(item.pretaxProfitHour)}/hr, after-tax profit ${money(item.afterTaxProfitHour)}/hr, dead-mile rate ${item.deadRate === null ? "--" : pct(item.deadRate)}</p>
+    </article>
+  `).join("");
+}
 
-      <nav class="tabs four-tabs" aria-label="Primary navigation">
-        <button class="tab-button active" data-tab="calculator" type="button">Trip</button>
-        <button class="tab-button" data-tab="daily" type="button">Daily</button>
-        <button class="tab-button" data-tab="settings" type="button">Settings</button>
-        <button class="tab-button" data-tab="history" type="button">History</button>
-      </nav>
+function switchTab(tabId) {
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tabId);
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === tabId);
+  });
+}
 
-      <section class="tab-panel active" id="calculator">
-        <form id="orderForm" class="form-grid">
-          <label>
-            <span>Offer amount</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="fare" type="number" min="0" step="0.01" inputmode="decimal" placeholder="18.00" required>
-            </div>
-          </label>
+function resetDecision() {
+  $("orderForm").reset();
+  $("customCostRow").classList.add("hidden");
+  $("saveRecord").disabled = true;
+  $("decisionArea").classList.remove("accept", "maybe", "decline");
+  $("decisionLabel").textContent = "Enter an offer to calculate";
+  $("scoreRing").textContent = "--";
+  $("hourlyGross").textContent = "--";
+  $("perMileGross").textContent = "--";
+  $("estimatedCost").textContent = "--";
+  $("netIncome").textContent = "--";
+  $("taxReserve").textContent = "--";
+  $("afterTaxNet").textContent = "--";
+  $("reasonList").innerHTML = "<li>The result uses hourly pay, gross per total mile, pickup distance, and destination risk.</li>";
+  updateCurrentCostNote();
+  lastDecision = null;
+}
 
-          <label>
-            <span>Trip miles</span>
-            <div class="input-shell">
-              <input id="tripMiles" type="number" min="0" step="0.1" inputmode="decimal" placeholder="9" required>
-              <b>mi</b>
-            </div>
-          </label>
+function wireEvents() {
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.addEventListener("click", () => switchTab(button.dataset.tab));
+  });
 
-          <label>
-            <span>Pickup miles</span>
-            <div class="input-shell">
-              <input id="pickupMiles" type="number" min="0" step="0.1" inputmode="decimal" placeholder="3" required>
-              <b>mi</b>
-            </div>
-          </label>
+  $("vehicleType").addEventListener("change", () => {
+    $("customCostRow").classList.toggle("hidden", $("vehicleType").value !== "custom");
+    updateCurrentCostNote();
+  });
 
-          <label>
-            <span>Estimated total time</span>
-            <div class="input-shell">
-              <input id="totalMinutes" type="number" min="1" step="1" inputmode="numeric" placeholder="32" required>
-              <b>min</b>
-            </div>
-          </label>
+  $("customCost").addEventListener("input", updateCurrentCostNote);
 
-          <label>
-            <span>Destination type</span>
-            <select id="destinationType">
-              <option value="corridor">Lehi / Draper / Provo corridor</option>
-              <option value="city">City core</option>
-              <option value="airport">Airport</option>
-              <option value="suburb">Suburb</option>
-              <option value="remote">Remote low-demand area</option>
-              <option value="unknown">Unknown</option>
-            </select>
-          </label>
+  ["startOdometer", "endOdometer"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      const start = getNumber("startOdometer");
+      const end = getNumber("endOdometer");
+      if (end > start) setValue("dailyMiles", (end - start).toFixed(1));
+    });
+  });
 
-          <label>
-            <span>Vehicle cost profile</span>
-            <select id="vehicleType">
-              <option value="ev">Model Y / EV</option>
-              <option value="economy">Economy</option>
-              <option value="comfort">Comfort</option>
-              <option value="suv">SUV</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
+  document.querySelectorAll(".cost-source, .cost-part").forEach((input) => {
+    input.addEventListener("input", updateCostTotal);
+  });
 
-          <label class="custom-cost hidden" id="customCostRow">
-            <span>Custom cost per mile</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="customCost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.35">
-            </div>
-          </label>
+  $("orderForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    lastDecision = calculateDecision();
+    renderDecision(lastDecision);
+  });
 
-          <div class="actions">
-            <button class="primary-button" type="submit">Calculate</button>
-            <button class="ghost-button" id="resetForm" type="button">Reset</button>
-          </div>
-        </form>
+  $("dailyForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    lastDaily = calculateDaily();
+    renderDaily(lastDaily);
+    const records = loadDaily().filter((record) => record.date !== lastDaily.date || record.platform !== lastDaily.platform);
+    saveDaily([lastDaily, ...records]);
+    renderHistory();
+    flashStatus("Daily KPI saved");
+  });
 
-        <section class="decision-area" id="decisionArea" aria-live="polite">
-          <div class="decision-header">
-            <div>
-              <p class="eyebrow">Recommendation</p>
-              <h2 id="decisionLabel">Enter an offer to calculate</h2>
-            </div>
-            <div class="score-ring" id="scoreRing">--</div>
-          </div>
+  $("resetForm").addEventListener("click", resetDecision);
 
-          <div class="metrics-grid">
-            <div><span>Gross per hour</span><strong id="hourlyGross">--</strong></div>
-            <div><span>Gross per total mile</span><strong id="perMileGross">--</strong></div>
-            <div><span>Estimated cost</span><strong id="estimatedCost">--</strong></div>
-            <div><span>Net income</span><strong id="netIncome">--</strong></div>
-            <div><span>Tax reserve</span><strong id="taxReserve">--</strong></div>
-            <div><span>After-tax net</span><strong id="afterTaxNet">--</strong></div>
-          </div>
+  $("settingsForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const defaultCost = costBreakdownTotal();
+    saveSettings({
+      minHourly: getNumber("minHourly"),
+      minPerMile: getNumber("minPerMile"),
+      maxPickupMiles: getNumber("maxPickupMiles"),
+      defaultCost,
+      homeElectricRate: getNumber("homeElectricRate"),
+      superchargerRate: getNumber("superchargerRate"),
+      homeChargingShare: getNumber("homeChargingShare"),
+      kwhPerMile: getNumber("kwhPerMile"),
+      electricCost: getNumber("electricCost"),
+      tireSetCost: getNumber("tireSetCost"),
+      tireLifeMiles: getNumber("tireLifeMiles"),
+      tireCost: getNumber("tireCost"),
+      maintenanceAmount: getNumber("maintenanceAmount"),
+      maintenanceIntervalMiles: getNumber("maintenanceIntervalMiles"),
+      maintenanceCost: getNumber("maintenanceCost"),
+      insuranceMonthlyPremium: getNumber("insuranceMonthlyPremium"),
+      insuranceAnnualMiles: getNumber("insuranceAnnualMiles"),
+      insuranceCost: getNumber("insuranceCost"),
+      depreciationCost: getNumber("depreciationCost"),
+      taxReserveRate: getNumber("taxReserveRate"),
+      penalizeSuburb: $("penalizeSuburb").checked,
+      penalizeAirport: $("penalizeAirport").checked,
+      penalizeRemote: $("penalizeRemote").checked,
+    });
+    flashStatus("Settings saved");
+  });
 
-          <ul class="reason-list" id="reasonList">
-            <li>The result uses hourly pay, gross per total mile, pickup distance, and destination risk.</li>
-          </ul>
+  $("saveRecord").addEventListener("click", () => {
+    if (!lastDecision) return;
+    saveHistory([lastDecision, ...loadHistory()]);
+    renderHistory();
+    flashStatus("Offer saved");
+  });
 
-          <button class="secondary-button" id="saveRecord" type="button" disabled>Save this offer</button>
-        </section>
+  $("clearHistory").addEventListener("click", () => {
+    saveHistory([]);
+    renderHistory();
+    flashStatus("Offer records cleared");
+  });
 
-        <section class="formula-panel">
-          <h2>Formulas</h2>
-          <div class="formula-grid">
-            <div><span>Gross per hour</span><strong>Offer amount / (total time / 60)</strong></div>
-            <div><span>Gross per total mile</span><strong>Offer amount / (trip miles + pickup miles)</strong></div>
-            <div><span>Estimated cost</span><strong>Total miles * full cost per mile</strong></div>
-            <div><span>Net income</span><strong>Offer amount - estimated cost</strong></div>
-          </div>
-          <p id="currentCostNote">Current full cost per mile: --</p>
-        </section>
-      </section>
+  $("checkTeslaBackend").addEventListener("click", checkTeslaBackend);
+  $("syncTeslaToday").addEventListener("click", syncTeslaToday);
+}
 
-      <section class="tab-panel" id="daily">
-        <form id="dailyForm" class="form-grid compact">
-          <label>
-            <span>Date</span>
-            <input id="dailyDate" type="date" required>
-          </label>
+async function checkTeslaBackend() {
+  const status = $("teslaBackendStatus");
+  const note = $("teslaBackendNote");
+  const link = $("teslaConnectLink");
 
-          <label>
-            <span>Platform</span>
-            <select id="dailyPlatform">
-              <option value="Both">Uber + Lyft</option>
-              <option value="Uber">Uber</option>
-              <option value="Lyft">Lyft</option>
-            </select>
-          </label>
+  if (location.protocol === "file:") {
+    status.textContent = "Static local file";
+    note.textContent = "Tesla sync requires the Netlify URL, not the local file version. Open your deployed site to check backend status.";
+    link.setAttribute("aria-disabled", "true");
+    return;
+  }
 
-          <label>
-            <span>Gross earnings</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="dailyGross" type="number" min="0" step="0.01" inputmode="decimal" placeholder="260" required>
-            </div>
-          </label>
+  try {
+    const response = await fetch("/.netlify/functions/tesla-config");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const config = await response.json();
+    if (!config.configured) {
+      status.textContent = "Backend installed, Tesla env vars missing";
+      const missing = Object.entries(config.missing)
+        .filter(([, value]) => value)
+        .map(([key]) => key)
+        .join(", ");
+      note.textContent = `Set these Netlify env vars: ${missing}. Tesla redirect URI: ${config.redirectUri}`;
+      link.setAttribute("aria-disabled", "true");
+      return;
+    }
 
-          <label>
-            <span>Online hours</span>
-            <div class="input-shell">
-              <input id="dailyHours" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="8" required>
-              <b>hr</b>
-            </div>
-          </label>
+    if (!config.canStoreTokens) {
+      status.textContent = "OAuth ready, token storage missing";
+      note.textContent = `Tesla OAuth can start, but daily sync needs Supabase token storage. Redirect URI: ${config.redirectUri}`;
+    } else {
+      status.textContent = "Ready to connect Tesla";
+      note.textContent = `Use this redirect URI in Tesla Developer Portal: ${config.redirectUri}`;
+    }
 
-          <label>
-            <span>Total driving miles</span>
-            <div class="input-shell">
-              <input id="dailyMiles" type="number" min="0" step="0.1" inputmode="decimal" placeholder="220" required>
-              <b>mi</b>
-            </div>
-          </label>
+    link.href = `/.netlify/functions/tesla-auth-start?user=${encodeURIComponent(getLocalUserId())}`;
+    link.setAttribute("aria-disabled", "false");
+  } catch (error) {
+    status.textContent = "Backend unavailable";
+    note.textContent = "Netlify Functions are not reachable yet. Redeploy the updated package or check the Netlify deploy logs.";
+    link.setAttribute("aria-disabled", "true");
+  }
+}
 
-          <label>
-            <span>Start odometer optional</span>
-            <div class="input-shell">
-              <input id="startOdometer" type="number" min="0" step="0.1" inputmode="decimal" placeholder="18420.5">
-              <b>mi</b>
-            </div>
-          </label>
+async function syncTeslaToday() {
+  const status = $("teslaBackendStatus");
+  const note = $("teslaBackendNote");
+  if (location.protocol === "file:") {
+    status.textContent = "Static local file";
+    note.textContent = "Open the deployed Netlify app to run Tesla sync.";
+    return;
+  }
 
-          <label>
-            <span>End odometer optional</span>
-            <div class="input-shell">
-              <input id="endOdometer" type="number" min="0" step="0.1" inputmode="decimal" placeholder="18640.5">
-              <b>mi</b>
-            </div>
-          </label>
+  status.textContent = "Syncing Tesla...";
+  note.textContent = "Requesting Tesla odometer and charging data. If the vehicle is asleep, this may fail without waking it.";
 
-          <label>
-            <span>Booked miles optional</span>
-            <div class="input-shell">
-              <input id="bookedMiles" type="number" min="0" step="0.1" inputmode="decimal" placeholder="154">
-              <b>mi</b>
-            </div>
-          </label>
+  try {
+    const user = encodeURIComponent(getLocalUserId());
+    const date = encodeURIComponent($("dailyDate").value || new Date().toISOString().slice(0, 10));
+    const response = await fetch(`/.netlify/functions/tesla-daily-sync?user=${user}&date=${date}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || data.error || "Tesla sync failed.");
 
-          <label>
-            <span>Tips / bonus optional</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="tipsBonus" type="number" min="0" step="0.01" inputmode="decimal" placeholder="35">
-            </div>
-          </label>
+    if (data.startOdometer) setValue("startOdometer", Number(data.startOdometer).toFixed(1));
+    if (data.endOdometer) setValue("endOdometer", Number(data.endOdometer).toFixed(1));
+    if (data.totalMiles) setValue("dailyMiles", Number(data.totalMiles).toFixed(1));
+    if (data.homeChargeKwh) setValue("homeChargeKwh", Number(data.homeChargeKwh).toFixed(1));
+    if (data.superchargeKwh) setValue("superchargeKwh", Number(data.superchargeKwh).toFixed(1));
 
-          <label>
-            <span>Home charging kWh optional</span>
-            <div class="input-shell">
-              <input id="homeChargeKwh" type="number" min="0" step="0.1" inputmode="decimal" placeholder="54">
-              <b>kWh</b>
-            </div>
-          </label>
+    status.textContent = "Tesla sync completed";
+    note.textContent = data.note || `Synced ${data.vehicle?.displayName || "Tesla"} for ${data.date}.`;
 
-          <label>
-            <span>Supercharger kWh optional</span>
-            <div class="input-shell">
-              <input id="superchargeKwh" type="number" min="0" step="0.1" inputmode="decimal" placeholder="12">
-              <b>kWh</b>
-            </div>
-          </label>
+    if (getNumber("dailyGross") && getNumber("dailyHours") && getNumber("dailyMiles")) {
+      lastDaily = calculateDaily();
+      renderDaily(lastDaily);
+    }
+  } catch (error) {
+    status.textContent = "Tesla sync failed";
+    note.textContent = error.message;
+  }
+}
 
-          <label class="toggle-row">
-            <span>Visited a low-demand area</span>
-            <input id="lowDemandArea" type="checkbox">
-          </label>
+function registerServiceWorker() {
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+}
 
-          <button class="primary-button full" type="submit">Save daily KPI</button>
-        </form>
-
-        <section class="decision-area daily-summary" id="dailySummary">
-          <div class="decision-header">
-            <div>
-              <p class="eyebrow">Daily performance</p>
-              <h2 id="dailyStatus">Enter 3 fields to calculate</h2>
-            </div>
-            <div class="score-ring" id="dailyScore">--</div>
-          </div>
-
-          <div class="metrics-grid">
-            <div><span>Gross / hour</span><strong id="dailyGrossHour">--</strong></div>
-            <div><span>Gross / total mile</span><strong id="dailyGrossMile">--</strong></div>
-            <div><span>Dead-mile rate</span><strong id="deadMileRate">--</strong></div>
-            <div><span>Pretax real profit</span><strong id="dailyProfit">--</strong></div>
-            <div><span>Tax reserve</span><strong id="dailyTaxReserve">--</strong></div>
-            <div><span>After-tax profit</span><strong id="dailyAfterTaxProfit">--</strong></div>
-            <div><span>Charging energy</span><strong id="dailyChargeEnergy">--</strong></div>
-            <div><span>Energy per mile</span><strong id="dailyKwhMile">--</strong></div>
-          </div>
-
-          <ul class="reason-list" id="dailyReasons">
-            <li>Daily KPI uses 3 required fields first. Optional fields make dead-mile rate and energy tracking more accurate.</li>
-          </ul>
-        </section>
-
-        <section class="formula-panel">
-          <h2>Tesla daily sync</h2>
-          <div class="formula-grid">
-            <div><span>Status</span><strong id="teslaBackendStatus">Checking backend...</strong></div>
-            <div><span>Data target</span><strong>Odometer + charging kWh once per day</strong></div>
-          </div>
-          <p id="teslaBackendNote">This static app needs Netlify Functions and Tesla OAuth credentials before automatic sync can run.</p>
-          <div class="actions">
-            <a class="primary-link" id="teslaConnectLink" href="#" aria-disabled="true">Connect Tesla</a>
-            <button class="ghost-button" id="checkTeslaBackend" type="button">Check backend</button>
-          </div>
-        </section>
-      </section>
-
-      <section class="tab-panel" id="settings">
-        <form id="settingsForm" class="form-grid compact">
-          <label>
-            <span>Target gross / hour</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="minHourly" type="number" min="0" step="1" inputmode="numeric">
-            </div>
-          </label>
-
-          <label>
-            <span>Target gross / total mile</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="minPerMile" type="number" min="0" step="0.1" inputmode="decimal">
-            </div>
-          </label>
-
-          <label>
-            <span>Max pickup miles</span>
-            <div class="input-shell">
-              <input id="maxPickupMiles" type="number" min="0" step="0.5" inputmode="decimal">
-              <b>mi</b>
-            </div>
-          </label>
-
-          <label class="full">
-            <span>Model Y full cost / mile</span>
-            <div class="input-shell">
-              <b>$</b>
-              <input id="defaultCost" type="number" min="0" step="0.01" inputmode="decimal" readonly>
-            </div>
-          </label>
-
-          <div class="cost-breakdown full">
-            <div class="breakdown-header">
-              <h2>Cost breakdown</h2>
-              <strong id="costTotalLabel">$0.35/mi</strong>
-            </div>
-
-            <label><span>Home electricity rate</span><div class="input-shell"><b>$</b><input class="cost-source" id="homeElectricRate" type="number" min="0" step="0.01" inputmode="decimal"><b>/kWh</b></div></label>
-            <label><span>Supercharger rate</span><div class="input-shell"><b>$</b><input class="cost-source" id="superchargerRate" type="number" min="0" step="0.01" inputmode="decimal"><b>/kWh</b></div></label>
-            <label><span>Home charging share</span><div class="input-shell"><input class="cost-source" id="homeChargingShare" type="number" min="0" max="100" step="1" inputmode="numeric"><b>%</b></div></label>
-            <label><span>Energy use</span><div class="input-shell"><input class="cost-source" id="kwhPerMile" type="number" min="0" step="0.01" inputmode="decimal"><b>kWh/mi</b></div></label>
-            <label><span>Electricity cost / mile</span><div class="input-shell"><b>$</b><input class="cost-part" id="electricCost" type="number" min="0" step="0.01" inputmode="decimal" readonly></div></label>
-
-            <label><span>Tire set cost</span><div class="input-shell"><b>$</b><input class="cost-source" id="tireSetCost" type="number" min="0" step="1" inputmode="numeric"></div></label>
-            <label><span>Tire life</span><div class="input-shell"><input class="cost-source" id="tireLifeMiles" type="number" min="1" step="1000" inputmode="numeric"><b>mi</b></div></label>
-            <label><span>Tire cost / mile</span><div class="input-shell"><b>$</b><input class="cost-part" id="tireCost" type="number" min="0" step="0.01" inputmode="decimal" readonly></div></label>
-
-            <label><span>Maintenance estimate</span><div class="input-shell"><b>$</b><input class="cost-source" id="maintenanceAmount" type="number" min="0" step="1" inputmode="numeric"></div></label>
-            <label><span>Maintenance interval</span><div class="input-shell"><input class="cost-source" id="maintenanceIntervalMiles" type="number" min="1" step="1000" inputmode="numeric"><b>mi</b></div></label>
-            <label><span>Maintenance cost / mile</span><div class="input-shell"><b>$</b><input class="cost-part" id="maintenanceCost" type="number" min="0" step="0.01" inputmode="decimal" readonly></div></label>
-
-            <label><span>Monthly insurance increase</span><div class="input-shell"><b>$</b><input class="cost-source" id="insuranceMonthlyPremium" type="number" min="0" step="1" inputmode="numeric"></div></label>
-            <label><span>Estimated annual miles</span><div class="input-shell"><input class="cost-source" id="insuranceAnnualMiles" type="number" min="1" step="1000" inputmode="numeric"><b>mi</b></div></label>
-            <label><span>Insurance cost / mile</span><div class="input-shell"><b>$</b><input class="cost-part" id="insuranceCost" type="number" min="0" step="0.01" inputmode="decimal" readonly></div></label>
-
-            <label><span>Depreciation</span><div class="input-shell"><b>$</b><input class="cost-part" id="depreciationCost" type="number" min="0" step="0.01" inputmode="decimal"></div></label>
-          </div>
-
-          <label>
-            <span>Tax reserve rate</span>
-            <div class="input-shell">
-              <input id="taxReserveRate" type="number" min="0" max="60" step="1" inputmode="numeric">
-              <b>%</b>
-            </div>
-          </label>
-
-          <label class="toggle-row">
-            <span>Penalize suburb destinations</span>
-            <input id="penalizeSuburb" type="checkbox">
-          </label>
-
-          <label class="toggle-row">
-            <span>Penalize airport waiting risk</span>
-            <input id="penalizeAirport" type="checkbox">
-          </label>
-
-          <label class="toggle-row">
-            <span>Heavily penalize remote low-demand areas</span>
-            <input id="penalizeRemote" type="checkbox">
-          </label>
-
-          <button class="primary-button full" type="submit">Save settings</button>
-        </form>
-
-        <section class="kpi-guide" aria-label="Core KPI">
-          <h2>Core KPI</h2>
-          <div class="kpi-grid">
-            <div><span>Gross / total mile</span><strong>$1.35+</strong><small>Minimum $1.20</small></div>
-            <div><span>Gross / online hour</span><strong>$30/hr+</strong><small>Minimum $24/hr</small></div>
-            <div><span>Dead-mile rate</span><strong>&lt;25%</strong><small>Maximum 35%</small></div>
-            <div><span>Pickup distance</span><strong>&lt;3 mi</strong><small>Maximum 6 mi</small></div>
-            <div><span>Home charging share</span><strong>90%+</strong><small>Minimum 80%</small></div>
-            <div><span>After-tax profit</span><strong>$20/hr+</strong><small>Minimum $15/hr</small></div>
-          </div>
-        </section>
-      </section>
-
-      <section class="tab-panel" id="history">
-        <div class="history-toolbar">
-          <p>Records</p>
-          <button class="ghost-button small" id="clearHistory" type="button">Clear offers</button>
-        </div>
-
-        <h2 class="section-title">Daily KPI</h2>
-        <div class="history-list" id="dailyList">
-          <p class="empty-state">No daily records yet.</p>
-        </div>
-
-        <h2 class="section-title">Offer decisions</h2>
-        <div class="history-list" id="historyList">
-          <p class="empty-state">No saved offers yet.</p>
-        </div>
-      </section>
-    </main>
-
-    <script src="app.js"></script>
-  </body>
-</html>
+$("dailyDate").value = new Date().toISOString().slice(0, 10);
+renderSettings();
+renderHistory();
+wireEvents();
+checkTeslaBackend();
+registerServiceWorker();

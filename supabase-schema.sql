@@ -20,3 +20,6 @@ create table if not exists daily_kpi (
   created_at timestamptz not null default now(),
   unique(user_id, date)
 );
+
+alter table daily_kpi add column if not exists vehicle_vin text;
+alter table daily_kpi add column if not exists tesla_synced_at timestamptz;

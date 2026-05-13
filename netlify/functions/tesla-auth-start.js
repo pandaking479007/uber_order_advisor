@@ -1,9 +1,9 @@
 const crypto = require("crypto");
 
-const scopes = ["openid", "offline_access", "vehicle_device_data"];
+const scopes = ["openid", "offline_access", "vehicle_device_data", "vehicle_charging_cmds"];
 
 exports.handler = async (event) => {
-  const clientId = process.env.TESLA_CLIENT_ID;
+  const clientId = process.env.TESLA_CLIENT_ID?.trim();
   const stateSecret = process.env.TESLA_STATE_SECRET;
   const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "";
 
@@ -20,6 +20,10 @@ exports.handler = async (event) => {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", scopes.join(" "));
   authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("locale", "en-US");
+  authUrl.searchParams.set("prompt", "login");
+  authUrl.searchParams.set("prompt_missing_scopes", "true");
+  authUrl.searchParams.set("require_requested_scopes", "true");
 
   return {
     statusCode: 302,

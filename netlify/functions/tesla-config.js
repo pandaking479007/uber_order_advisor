@@ -1,10 +1,10 @@
-const scopes = ["openid", "offline_access", "vehicle_device_data"];
+const scopes = ["openid", "offline_access", "vehicle_device_data", "vehicle_charging_cmds"];
 
 exports.handler = async (event) => {
   const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "";
   const redirectUri = `${siteUrl}/.netlify/functions/tesla-auth-callback`;
-  const hasClientId = Boolean(process.env.TESLA_CLIENT_ID);
-  const hasClientSecret = Boolean(process.env.TESLA_CLIENT_SECRET);
+  const hasClientId = Boolean(process.env.TESLA_CLIENT_ID?.trim());
+  const hasClientSecret = Boolean(process.env.TESLA_CLIENT_SECRET?.trim());
   const hasStateSecret = Boolean(process.env.TESLA_STATE_SECRET);
   const hasSupabase = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 

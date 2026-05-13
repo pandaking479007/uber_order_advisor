@@ -8,8 +8,8 @@ exports.handler = async (event) => {
   if (error) return html(400, `Tesla authorization failed: ${error}`);
   if (!code || !state) return html(400, "Missing Tesla authorization code or state.");
 
-  const clientId = process.env.TESLA_CLIENT_ID;
-  const clientSecret = process.env.TESLA_CLIENT_SECRET;
+  const clientId = process.env.TESLA_CLIENT_ID?.trim();
+  const clientSecret = process.env.TESLA_CLIENT_SECRET?.trim();
   const stateSecret = process.env.TESLA_STATE_SECRET;
   const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "";
 
@@ -21,7 +21,7 @@ exports.handler = async (event) => {
   if (!payload) return html(400, "Invalid OAuth state.");
 
   const redirectUri = `${siteUrl}/.netlify/functions/tesla-auth-callback`;
-  const tokenResponse = await fetch("https://auth.tesla.com/oauth2/v3/token", {
+  const tokenResponse = await fetch("https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -29,6 +29,7 @@ exports.handler = async (event) => {
       client_id: clientId,
       client_secret: clientSecret,
       code,
+      audience: "https://fleet-api.prd.na.vn.cloud.tesla.com",
       redirect_uri: redirectUri,
     }),
   });

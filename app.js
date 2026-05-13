@@ -40,6 +40,7 @@ const defaultSettings = {
 let lastDecision = null;
 let lastDaily = null;
 let chartPeriod = "week";
+let chartMetric = "gross";
 
 const $ = (id) => document.getElementById(id);
 
@@ -526,9 +527,8 @@ function renderCharts() {
   const records = loadDaily()
     .filter((item) => item.date)
     .sort((a, b) => new Date(a.date) - new Date(b.date));
-  const grouped = groupDailyRecords(records, chartPeriod);
-  const groups = Object.values(grouped).slice(-8);
-  const totals = groups.reduce((sum, group) => ({
+  const axisGroups = buildAxisGroups(records, chartPeriod);
+  const totals = axisGroups.reduce((sum, group) => ({
     gross: sum.gross + group.gross,
     cost: sum.cost + group.cost,
     pretax: sum.pretax + group.pretax,
@@ -540,35 +540,88 @@ function renderCharts() {
   $("chartCostTotal").textContent = money(totals.cost);
   $("chartPretaxTotal").textContent = money(totals.pretax);
   $("chartAfterTaxTotal").textContent = money(totals.afterTax);
+  $("axisChartTitle").textContent = `${metricLabels[chartMetric]} by ${chartPeriod === "week" ? "day" : chartPeriod === "month" ? "week" : "month"}`;
+  $("selectedMetricLabel").textContent = metricLabels[chartMetric];
+  $("selectedMetricLegend").className = metricClasses[chartMetric].legend;
 
-  const chart = $("barChart");
-  if (!groups.length) {
+  const chart = $("axisChart");
+  if (!records.length) {
     chart.innerHTML = '<p class="empty-state">No daily KPI records yet.</p>';
     return;
   }
 
-  const maxValue = Math.max(...groups.flatMap((group) => [group.gross, group.cost, group.pretax, group.afterTax]), 1);
-  chart.innerHTML = groups.map((group) => `
-    <article class="chart-row">
-      <header>
-        <strong>${group.label}</strong>
-        <small>${oneDecimal(group.miles)} mi / ${oneDecimal(group.hours)} hr</small>
-      </header>
-      <div class="bar-stack">
-        ${barLine("Gross", group.gross, maxValue, "bar-gross")}
-        ${barLine("Cost", group.cost, maxValue, "bar-cost")}
-        ${barLine("Pretax", group.pretax, maxValue, "bar-pretax")}
-        ${barLine("After tax", group.afterTax, maxValue, "bar-aftertax")}
-      </div>
-    </article>
-  `).join("");
+  const maxValue = Math.max(...axisGroups.map((group) => Math.max(0, group[chartMetric])), 1);
+  chart.innerHTML = `
+    <div class="y-axis">
+      <span>${money(maxValue)}</span>
+      <span>${money(maxValue * 0.75)}</span>
+      <span>${money(maxValue * 0.5)}</span>
+      <span>${money(maxValue * 0.25)}</span>
+      <span>$0</span>
+    </div>
+    <div class="x-chart">
+      ${axisGroups.map((group) => axisColumn(group, maxValue)).join("")}
+    </div>
+  `;
+}
+
+const metricLabels = {
+  gross: "Gross revenue",
+  cost: "Estimated cost",
+  pretax: "Pretax net",
+  afterTax: "After-tax net",
+};
+
+const metricClasses = {
+  gross: { legend: "legend-gross", bar: "bar-gross" },
+  cost: { legend: "legend-cost", bar: "bar-cost" },
+  pretax: { legend: "legend-pretax", bar: "bar-pretax" },
+  afterTax: { legend: "legend-aftertax", bar: "bar-aftertax" },
+};
+
+function buildAxisGroups(records, period) {
+  if (period === "week") return buildWeekGroups(records);
+  if (period === "month") return Object.values(groupDailyRecords(records, "week")).slice(-5);
+  return Object.values(groupDailyRecords(records, "month")).slice(-3);
+}
+
+function buildWeekGroups(records) {
+  const now = new Date();
+  const monday = startOfWeek(now);
+  const groups = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return {
+      key: date.toISOString().slice(0, 10),
+      label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+      gross: 0,
+      cost: 0,
+      pretax: 0,
+      afterTax: 0,
+      miles: 0,
+      hours: 0,
+    };
+  });
+  const groupMap = Object.fromEntries(groups.map((group) => [group.key, group]));
+  records.forEach((item) => {
+    if (!groupMap[item.date]) return;
+    addRecordToGroup(groupMap[item.date], item);
+  });
+  return groups;
+}
+
+function startOfWeek(date) {
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = result.getDay() || 7;
+  result.setDate(result.getDate() - day + 1);
+  return result;
 }
 
 function groupDailyRecords(records, period) {
   return records.reduce((groups, item) => {
     const key = getPeriodKey(item.date, period);
     if (!groups[key]) {
-      groups[key] = {
+    groups[key] = {
         key,
         label: getPeriodLabel(item.date, period),
         gross: 0,
@@ -577,16 +630,20 @@ function groupDailyRecords(records, period) {
         afterTax: 0,
         miles: 0,
         hours: 0,
-      };
-    }
-    groups[key].gross += Number(item.gross || 0);
-    groups[key].cost += Number(item.estimatedCost || 0);
-    groups[key].pretax += Number(item.pretaxProfit || 0);
-    groups[key].afterTax += Number(item.afterTaxProfit || 0);
-    groups[key].miles += Number(item.totalMiles || 0);
-    groups[key].hours += Number(item.hours || 0);
+    };
+  }
+    addRecordToGroup(groups[key], item);
     return groups;
   }, {});
+}
+
+function addRecordToGroup(group, item) {
+  group.gross += Number(item.gross || 0);
+  group.cost += Number(item.estimatedCost || 0);
+  group.pretax += Number(item.pretaxProfit || 0);
+  group.afterTax += Number(item.afterTaxProfit || 0);
+  group.miles += Number(item.totalMiles || 0);
+  group.hours += Number(item.hours || 0);
 }
 
 function getPeriodKey(dateValue, period) {
@@ -621,6 +678,22 @@ function barLine(label, value, maxValue, className) {
       <span>${label}</span>
       <div class="bar-track"><div class="bar-fill ${className}" style="width:${width}%"></div></div>
       <strong>${money(value)}</strong>
+    </div>
+  `;
+}
+
+function axisColumn(group, maxValue) {
+  const value = Math.max(0, Number(group[chartMetric] || 0));
+  const height = Math.max(0, Math.min(100, (value / maxValue) * 100));
+  return `
+    <div class="axis-column">
+      <div class="axis-bar-wrap">
+        <div class="axis-bar ${metricClasses[chartMetric].bar}" title="${group.label}: ${money(value)}" style="height:${height}%"></div>
+      </div>
+      <div class="axis-label">
+        <span>${group.label}</span>
+        <strong>${money(value)}</strong>
+      </div>
     </div>
   `;
 }
@@ -756,6 +829,11 @@ function wireEvents() {
       });
       renderCharts();
     });
+  });
+
+  $("chartMetric").addEventListener("change", () => {
+    chartMetric = $("chartMetric").value;
+    renderCharts();
   });
 }
 

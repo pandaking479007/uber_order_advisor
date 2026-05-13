@@ -403,6 +403,22 @@ a.primary-link[aria-disabled="true"] {
   justify-content: flex-end;
 }
 
+.chart-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.chart-select {
+  min-width: 190px;
+}
+
+.chart-select select {
+  min-height: 38px;
+}
+
 .ghost-button.active-period {
   border-color: var(--accent);
   color: var(--accent-dark);
@@ -587,6 +603,80 @@ a.primary-link[aria-disabled="true"] {
   border-radius: 999px;
 }
 
+.axis-chart {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  min-height: 290px;
+}
+
+.y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 4px 0 28px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.x-chart {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+  min-height: 260px;
+  padding-top: 8px;
+  border-left: 1px solid rgba(22, 32, 28, 0.12);
+  border-bottom: 1px solid rgba(22, 32, 28, 0.12);
+  background: repeating-linear-gradient(
+    to top,
+    transparent,
+    transparent 51px,
+    rgba(22, 32, 28, 0.06) 52px
+  );
+}
+
+.axis-column {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+}
+
+.axis-bar-wrap {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.axis-bar {
+  width: min(34px, 70%);
+  min-height: 2px;
+  border-radius: 6px 6px 0 0;
+  background: var(--accent);
+}
+
+.axis-label {
+  display: grid;
+  gap: 3px;
+  min-height: 40px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.axis-label strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+
 .kpi-guide {
   margin-top: 16px;
   padding: 16px;
@@ -739,7 +829,23 @@ a.primary-link[aria-disabled="true"] {
     flex-direction: column;
   }
 
+  .chart-toolbar {
+    justify-content: flex-start;
+  }
+
   .bar-line {
     grid-template-columns: 62px 1fr 66px;
+  }
+
+  .axis-chart {
+    grid-template-columns: 42px 1fr;
+  }
+
+  .x-chart {
+    gap: 5px;
+  }
+
+  .axis-bar {
+    width: min(24px, 72%);
   }
 }

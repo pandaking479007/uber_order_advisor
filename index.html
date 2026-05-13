@@ -280,10 +280,21 @@
       <section class="tab-panel" id="charts">
         <div class="history-toolbar">
           <p>Performance charts</p>
-          <div class="chart-controls" role="group" aria-label="Chart period">
-            <button class="ghost-button small active-period" data-chart-period="week" type="button">Weekly</button>
-            <button class="ghost-button small" data-chart-period="month" type="button">Monthly</button>
-            <button class="ghost-button small" data-chart-period="quarter" type="button">Quarterly</button>
+          <div class="chart-toolbar">
+            <div class="chart-controls" role="group" aria-label="Chart period">
+              <button class="ghost-button small active-period" data-chart-period="week" type="button">Weekly</button>
+              <button class="ghost-button small" data-chart-period="month" type="button">Monthly</button>
+              <button class="ghost-button small" data-chart-period="quarter" type="button">Quarterly</button>
+            </div>
+            <label class="chart-select">
+              <span>Metric</span>
+              <select id="chartMetric">
+                <option value="gross">Gross revenue</option>
+                <option value="cost">Estimated cost</option>
+                <option value="pretax">Pretax net</option>
+                <option value="afterTax">After-tax net</option>
+              </select>
+            </label>
           </div>
         </div>
 
@@ -303,14 +314,12 @@
         </section>
 
         <section class="chart-panel">
-          <h2>Gross vs cost vs net</h2>
+          <h2 id="axisChartTitle">Gross revenue by day</h2>
           <div class="chart-legend">
-            <span><b class="legend-gross"></b> Gross</span>
-            <span><b class="legend-cost"></b> Cost</span>
-            <span><b class="legend-pretax"></b> Pretax net</span>
-            <span><b class="legend-aftertax"></b> After-tax net</span>
+            <span><b id="selectedMetricLegend" class="legend-gross"></b><span id="selectedMetricLabel">Gross revenue</span></span>
+            <span>Y axis: dollar amount</span>
           </div>
-          <div class="bar-chart" id="barChart">
+          <div class="axis-chart" id="axisChart">
             <p class="empty-state">No daily KPI records yet.</p>
           </div>
         </section>
